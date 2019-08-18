@@ -2,8 +2,10 @@ from __future__ import print_function
 
 import argparse
 import logging
+import os
 import sys
 import tempfile
+import time
 
 from tensorboardX import SummaryWriter
 
@@ -29,6 +31,7 @@ from guild import guildfile
 from guild import opref as opreflib
 from guild import run as runlib
 from guild import run_util
+from guild import util
 
 logging.basicConfig(
     format="%(message)s",
@@ -42,6 +45,10 @@ HPARAM_DATA_VER = 0
 EXPERIMENT_TAG = "_hparams_/experiment"
 SESSION_START_INFO_TAG = '_hparams_/session_start_info'
 SESSION_END_INFO_TAG = '_hparams_/session_end_info'
+
+###################################################################
+# Init
+###################################################################
 
 class SampleRun(object):
 
@@ -95,26 +102,159 @@ def _cmd_handler(args):
         .format(prog=sys.argv[0], cmd=args.cmd))
 
 def _print_help_and_exit():
+    max_name = max([len(cmd[0]) for cmd in CMDS])
     for name, _, desc in CMDS:
-        print(name.ljust(10), desc)
+        print(name.ljust(max_name + 1), desc)
     raise SystemExit()
 
 def _init_logdir(args):
     return args.logdir or tempfile.mkdtemp(prefix="guild-summaries-")
 
+###################################################################
+# Commands
+###################################################################
+
 def _default(gf, logdir):
     log.info("Running default scenario")
-    opdef = _opdef(gf, "noisy")
+    opdef = OpDef(gf, "noisy")
     run = SampleRun(opdef)
     run.start()
     scalars = run_scalars(run)
     with SummaryWriter(logdir) as writer:
-        add_experiment(writer, opdef.flags, ["loss"])
+        add_experiment(writer, opdef.flags, _tags(scalars))
         add_session_start_info(writer, run)
         add_scalars(writer, scalars)
         add_session_end_info(writer, run)
 
-def _opdef(gf, name):
+def _status_change_session(gf, logdir):
+    log.info("Running status change 'by session' scenario (fails)")
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef)
+
+    def session():
+        add_session_start_info(writer, run)
+        add_session_end_info(writer, run)
+
+    with SummaryWriter(logdir) as writer:
+        add_experiment(writer, opdef.flags, _tags(scalars))
+        session()
+        log.info(" - Starting run")
+        run.start()
+        session()
+        log.info(" - Stopping run")
+        run.stop()
+        session()
+
+def _status_change_experiment(gf, logdir):
+    log.info("Running status change 'by experiment' scenario (fails)")
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef)
+
+    def experiment():
+        add_experiment(writer, opdef.flags, _tags(scalars))
+        add_session_start_info(writer, run)
+        add_session_end_info(writer, run)
+
+    with SummaryWriter(logdir) as writer:
+        experiment()
+        log.info(" - Starting run")
+        run.start()
+        experiment()
+        log.info(" - Stopping run")
+        run.stop()
+        experiment()
+
+def _status_change_summary(gf, logdir):
+    log.info("Running status change 'by summary' scenario (fails)")
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef)
+
+    def summary():
+        time.sleep(1) # ensure we get a unique timestamp in logdir
+        with SummaryWriter(logdir) as writer:
+            add_experiment(writer, opdef.flags, _tags(scalars))
+            add_session_start_info(writer, run)
+            add_session_end_info(writer, run)
+
+    summary()
+    log.info(" - Starting run")
+    run.start()
+    summary()
+    log.info(" - Stopping run")
+    run.stop()
+    summary()
+
+def _status_change_replace(gf, logdir):
+    log.info("Running status change 'by replace' scenario (fails)")
+    log.info("Check status in %s", logdir)
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef)
+
+    def summary():
+        log.info(" - Clearing log dir of event files")
+        for name in os.listdir(logdir):
+            os.remove(os.path.join(logdir, name))
+        with SummaryWriter(logdir) as writer:
+            add_experiment(writer, opdef.flags, _tags(scalars))
+            add_session_start_info(writer, run)
+            add_session_end_info(writer, run)
+
+    summary()
+    pause("Run status should be UKNOWN - press Enter to replace")
+    log.info(" - Starting run")
+    run.start()
+    summary()
+    pause("Run status should be RUNNING - press Enter to replace")
+    log.info(" - Stopping run")
+    run.stop()
+    summary()
+
+def _no_session(gf, logdir):
+    log.info("Running no-session scenario")
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef)
+    scalars = run_scalars(run)
+    with SummaryWriter(logdir) as writer:
+        add_experiment(writer, opdef.flags, _tags(scalars))
+        add_scalars(writer, scalars)
+
+def _check_status(gf, logdir):
+    log.info("Running check-status scenario")
+    log.info("Check status in %s", logdir)
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef)
+    scalars = run_scalars(run)
+    run.start()  # Does nothing as initial status not
+                 # logged, but here to show life cycle
+    with SummaryWriter(logdir) as writer:
+        add_experiment(writer, opdef.flags, _tags(scalars))
+        add_session_start_info(writer, run)
+        writer.flush()
+        pause("Run status should be UNKNOWN - press Enter to set")
+        run.stop()
+        add_session_end_info(writer, run)
+
+CMDS = [
+    ("default",                  _default, "default scenario"),
+    ("status-change-session",    _status_change_session,
+     "update run status by session (fails)"),
+    ("status-change-experiment", _status_change_experiment,
+     "update run status by experiment (fails)"),
+    ("status-change-summary",    _status_change_summary,
+     "update run status by summary (fails)"),
+    ("status-change-replace",    _status_change_replace,
+     "update run status by replace (fails)"),
+    ("no-session",               _no_session,
+     "log only an experiment and scalars"),
+    ("check-status",              _check_status,
+     "pause to check status before setting"),
+]
+
+###################################################################
+# Scenario support
+###################################################################
+
+def OpDef(gf, name):
     opdef = gf.default_model.get_operation("noisy")
     if not opdef:
         raise SystemExit("missing op '%s' in guild.yml" % name)
@@ -133,11 +273,11 @@ def add_scalars(writer, scalars):
     for tag, value, step in scalars:
         writer.add_scalar(tag, value, step)
 
-def add_experiment(writer, flagdefs, scalars):
+def add_experiment(writer, flagdefs, scalar_tags):
     log.info(
         " - Experiment with %i flag(s) and %i metric(s)",
-        len(flagdefs), len(scalars))
-    _add_summary(writer, _ExperimentSummary(flagdefs, ["loss"]))
+        len(flagdefs), len(scalar_tags))
+    _add_summary(writer, _ExperimentSummary(flagdefs, scalar_tags))
 
 def add_session_start_info(writer, run):
     log.info(
@@ -154,15 +294,29 @@ def add_session_end_info(writer, run):
 def _add_summary(writer, s):
     writer._get_file_writer().add_summary(s)
 
-def _ExperimentSummary(flags, scalars):
-    experiment = _Experiment(flags, scalars)
+def pause(prompt):
+    print(prompt, end=" ")
+    sys.stdin.readline()
+
+def _tags(scalars):
+    tags = set()
+    for tag, _val, _step in scalars:
+        tags.add(tag)
+    return list(tags)
+
+###################################################################
+# HParam proto support
+###################################################################
+
+def _ExperimentSummary(flags, scalar_tags):
+    experiment = _Experiment(flags, scalar_tags)
     return _HParamSummary(
         EXPERIMENT_TAG, _HParamExperimentData(experiment))
 
-def _Experiment(flags, scalars):
+def _Experiment(flags, scalar_tags):
     return Experiment(
         hparam_infos=[_HParamInfo(flag) for flag in flags],
-        metric_infos=[_MetricInfo(name) for name in scalars])
+        metric_infos=[_MetricInfo(tag) for tag in scalar_tags])
 
 def _HParamInfo(flag):
     return HParamInfo(
@@ -268,16 +422,15 @@ def _Status(run):
     elif run.status == "running":
         return Status.STATUS_RUNNING
     else:
-        return Status.STATUS_UKNOWN
+        return Status.STATUS_UNKNOWN
 
 def _HParamSessionEndInfoData(info):
     return HParamsPluginData(
         session_end_info=info,
         version=HPARAM_DATA_VER)
 
-CMDS = [
-    ("default", _default, "default scenario"),
-]
-
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("")
