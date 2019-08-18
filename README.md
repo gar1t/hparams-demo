@@ -35,3 +35,31 @@ and restart the TensorBoard backend.
 
 See `check-status` scenario for the one success path (though does not
 support a 'running' status).
+
+### Ending sessions
+
+It's not clear that ending a session provides any value beyond setting
+the session status. The end time doesn't appear to be used.
+
+### Latent metrics
+
+We don't know the list of metrics ahead of time and so any runs that
+are in-flight can add more scalars. It's common, e.g. to print a final
+metric at the end of a run.
+
+If we wait until a run is finished before showing metrics, runs in
+flight won't show up in the HParams tab. This is super lame.
+
+I think the best way to handle this is to wait until there's at least
+one top-level scalar available for a run - and then add the
+experiment.
+
+We could even wait another cycle before creating the experiment (e.g
+using the pending scheme ala images). Though I think KISS for this
+first pass.
+
+We can certainly miss metrics here! The only sure fire way to deal
+with this is to either require the list of metrics ahead of time or to
+get TB to update its damn list of metrics.
+
+Until then we can start with this approach.

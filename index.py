@@ -3,6 +3,7 @@ from __future__ import print_function
 import argparse
 import logging
 import os
+import random
 import sys
 import tempfile
 import time
@@ -46,13 +47,18 @@ EXPERIMENT_TAG = "_hparams_/experiment"
 SESSION_START_INFO_TAG = '_hparams_/session_start_info'
 SESSION_END_INFO_TAG = '_hparams_/session_end_info'
 
+SAMPLE_FLAGS = {
+    "noise": 0.1,
+    "x": 1.0,
+}
+
 ###################################################################
 # Init
 ###################################################################
 
 class SampleRun(object):
 
-    def __init__(self, opdef):
+    def __init__(self, opdef, flags=None):
         self.id = runlib.mkid()
         self.opref = opreflib.OpRef(
             "guildfile", opdef.guildfile.src, "",
@@ -60,10 +66,7 @@ class SampleRun(object):
         self.short_id = self.id[:8]
         self.status = "pending"
         self._attrs = {
-            "flags": {
-                "noise": 0.1,
-                "x": 1.0,
-            }
+            "flags": flags or SAMPLE_FLAGS
         }
         self.get = self._attrs.get
         self.guild_path = lambda _: "__not_uses__"
@@ -121,7 +124,7 @@ def _default(gf, logdir):
     run.start()
     scalars = run_scalars(run)
     with SummaryWriter(logdir) as writer:
-        add_experiment(writer, opdef.flags, _tags(scalars))
+        add_experiment(writer, opdef.flags, scalar_tags(scalars))
         add_session_start_info(writer, run)
         add_scalars(writer, scalars)
         add_session_end_info(writer, run)
@@ -136,7 +139,7 @@ def _status_change_session(gf, logdir):
         add_session_end_info(writer, run)
 
     with SummaryWriter(logdir) as writer:
-        add_experiment(writer, opdef.flags, _tags(scalars))
+        add_experiment(writer, opdef.flags, scalar_tags(scalars))
         session()
         log.info(" - Starting run")
         run.start()
@@ -151,7 +154,7 @@ def _status_change_experiment(gf, logdir):
     run = SampleRun(opdef)
 
     def experiment():
-        add_experiment(writer, opdef.flags, _tags(scalars))
+        add_experiment(writer, opdef.flags, scalar_tags(scalars))
         add_session_start_info(writer, run)
         add_session_end_info(writer, run)
 
@@ -172,7 +175,7 @@ def _status_change_summary(gf, logdir):
     def summary():
         time.sleep(1) # ensure we get a unique timestamp in logdir
         with SummaryWriter(logdir) as writer:
-            add_experiment(writer, opdef.flags, _tags(scalars))
+            add_experiment(writer, opdef.flags, scalar_tags(scalars))
             add_session_start_info(writer, run)
             add_session_end_info(writer, run)
 
@@ -192,10 +195,9 @@ def _status_change_replace(gf, logdir):
 
     def summary():
         log.info(" - Clearing log dir of event files")
-        for name in os.listdir(logdir):
-            os.remove(os.path.join(logdir, name))
+        clear_dir(logdir)
         with SummaryWriter(logdir) as writer:
-            add_experiment(writer, opdef.flags, _tags(scalars))
+            add_experiment(writer, opdef.flags, scalar_tags(scalars))
             add_session_start_info(writer, run)
             add_session_end_info(writer, run)
 
@@ -215,8 +217,17 @@ def _no_session(gf, logdir):
     run = SampleRun(opdef)
     scalars = run_scalars(run)
     with SummaryWriter(logdir) as writer:
-        add_experiment(writer, opdef.flags, _tags(scalars))
+        add_experiment(writer, opdef.flags, scalar_tags(scalars))
         add_scalars(writer, scalars)
+
+def _no_experiment(gf, logdir):
+    log.info("Running no-experiment scenario")
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef)
+    scalars = run_scalars(run)
+    with SummaryWriter(logdir) as writer:
+        add_session_start_info(writer, run)
+        #add_session_end_info(writer, run)
 
 def _check_status(gf, logdir):
     log.info("Running check-status scenario")
@@ -227,12 +238,57 @@ def _check_status(gf, logdir):
     run.start()  # Does nothing as initial status not
                  # logged, but here to show life cycle
     with SummaryWriter(logdir) as writer:
-        add_experiment(writer, opdef.flags, _tags(scalars))
+        add_experiment(writer, opdef.flags, scalar_tags(scalars))
         add_session_start_info(writer, run)
         writer.flush()
         pause("Run status should be UNKNOWN - press Enter to set")
         run.stop()
         add_session_end_info(writer, run)
+
+def _latent_metrics(gf, logdir):
+    log.info("Running check-status scenario (fails)")
+    opdef = OpDef(gf, "noisy")
+    with SummaryWriter(logdir) as writer:
+        add_experiment(writer, opdef.flags, [])
+        add_experiment(writer, {}, ["loss"])
+
+def _runs(gf, logdir):
+    log.info("Running runs scenario")
+    opdef = OpDef(gf, "noisy")
+    runs = [SampleRun(opdef, random_noisy_flags()) for _ in range(10)]
+    for run in runs:
+        _add_run_default(run, opdef, logdir)
+
+def _add_run_default(run, opdef, logdir, scalars=None):
+    log.info(" - Adding run %s", run.short_id)
+    run_logdir = os.path.join(logdir, run_label(run))
+    util.ensure_dir(run_logdir)
+    if scalars is None:
+        scalars = perturb_scalars(run_scalars(run))
+    with SummaryWriter(run_logdir) as writer:
+        add_scalars(writer, scalars)
+        add_experiment(writer, opdef.flags, scalar_tags(scalars))
+        add_session_start_info(writer, run)
+        add_session_end_info(writer, run)
+    return run_logdir
+
+def _add_run(gf, logdir):
+    log.info("Running add-run scenario")
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef, random_noisy_flags())
+    _add_run_default(run, opdef, logdir)
+
+def _latent_metrics_2(gf, logdir):
+    log.info("Running latent metrics v2 scenario (fails)")
+    log.info("Check status in %s", logdir)
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef, random_noisy_flags())
+    run_logdir = _add_run_default(run, opdef, logdir, [])
+    pause(
+        "Added run %s without metrics - press Enter to update"
+        % run.short_id)
+    clear_dir(run_logdir)
+    _add_run_default(run, opdef, logdir)
 
 CMDS = [
     ("default",                  _default, "default scenario"),
@@ -246,8 +302,18 @@ CMDS = [
      "update run status by replace (fails)"),
     ("no-session",               _no_session,
      "log only an experiment and scalars"),
-    ("check-status",              _check_status,
+    ("no-experiment",            _no_experiment,
+     "log only session"),
+    ("check-status",             _check_status,
      "pause to check status before setting"),
+    ("latent-metrics",           _latent_metrics,
+     "add metrics after adding experiment (fails)"),
+    ("runs",                     _runs,
+     "generate multiple runs"),
+    ("add-run",                  _add_run,
+     "add run to logdir"),
+    ("latent-metrics-2",         _latent_metrics_2,
+     "add matrics after adding experiment v2 (fails)"),
 ]
 
 ###################################################################
@@ -267,6 +333,18 @@ def run_scalars(_run):
         ("loss", -0.6, 3),
         ("loss", -0.7, 4),
     ]
+
+def random_noisy_flags():
+    return {
+        "noise": round(0.1 + (random.uniform(-0.1, 0.2)), 4),
+        "x": round(random.uniform(-3.0, 3.0), 4),
+    }
+
+def perturb_scalars(scalars):
+    return [(tag, perturb_val(val), step) for tag, val, step in scalars]
+
+def perturb_val(x):
+    return x + random.uniform(-0.5, 0.5)
 
 def add_scalars(writer, scalars):
     log.info(" - Scalars for %i value(s)", len(scalars))
@@ -298,11 +376,15 @@ def pause(prompt):
     print(prompt, end=" ")
     sys.stdin.readline()
 
-def _tags(scalars):
+def scalar_tags(scalars):
     tags = set()
     for tag, _val, _step in scalars:
         tags.add(tag)
     return list(tags)
+
+def clear_dir(dir):
+    for name in os.listdir(dir):
+        os.remove(os.path.join(dir, name))
 
 ###################################################################
 # HParam proto support
@@ -366,7 +448,7 @@ def _SessionStartInfo(run):
     started_secs = _safe_seconds(run.get("started"))
     session = SessionStartInfo(
         model_uri="not sure what this is",
-        group_name=_session_group_name(run),
+        group_name=run_label(run),
         start_time_secs=started_secs)
     for name, val in flags.items():
         _apply_session_hparam(val, name, session)
@@ -377,15 +459,9 @@ def _safe_seconds(timestamp):
         return None
     return timestamp / 1000000
 
-def _session_group_name(run):
+def run_label(run):
     operation = run_util.format_operation(run)
-    label_part = _label_part(run.get("label"))
-    return "%s %s%s" % (run.short_id, operation, label_part)
-
-def _label_part(label):
-    if not label:
-        return ""
-    return " " + label
+    return "%s %s" % (run.short_id, operation)
 
 def _apply_session_hparam(val, name, session):
     if isinstance(val, (int, float)):
