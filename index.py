@@ -30,7 +30,9 @@ from guild import opref as opreflib
 from guild import run as runlib
 from guild import run_util
 
-logging.basicConfig(format="%(message)s", level=logging.INFO)
+logging.basicConfig(
+    format="%(message)s",
+    level=logging.INFO)
 
 log = logging.getLogger()
 
@@ -71,7 +73,7 @@ def main():
     args = _init_args()
     handler = _cmd_handler(args)
     gf = guildfile.from_dir(".")
-    logdir = args.logdir or tempfile.mkdtemp(prefix="guild-summaries-")
+    logdir = _init_logdir(args)
     handler(gf, logdir)
     log.info("Wrote summaries to %s", logdir)
 
@@ -96,6 +98,9 @@ def _print_help_and_exit():
     for name, _, desc in CMDS:
         print(name.ljust(10), desc)
     raise SystemExit()
+
+def _init_logdir(args):
+    return args.logdir or tempfile.mkdtemp(prefix="guild-summaries-")
 
 def _default(gf, logdir):
     log.info("Running default scenario")
@@ -151,7 +156,8 @@ def _add_summary(writer, s):
 
 def _ExperimentSummary(flags, scalars):
     experiment = _Experiment(flags, scalars)
-    return _HParamSummary(EXPERIMENT_TAG, _HParamExperimentData(experiment))
+    return _HParamSummary(
+        EXPERIMENT_TAG, _HParamExperimentData(experiment))
 
 def _Experiment(flags, scalars):
     return Experiment(
@@ -184,19 +190,22 @@ def _MetricInfo(scalar_name):
     return MetricInfo(name=MetricName(tag=scalar_name))
 
 def _HParamExperimentData(experiment):
-    return HParamsPluginData(experiment=experiment, version=HPARAM_DATA_VER)
+    return HParamsPluginData(
+        experiment=experiment, version=HPARAM_DATA_VER)
 
 def _HParamSummary(tag, data):
     metadata = SummaryMetadata(
         plugin_data=SummaryMetadata.PluginData(
             plugin_name=HPARAM_PLUGIN_NAME,
             content=data.SerializeToString()))
-    return Summary(value=[Summary.Value(tag=tag, metadata=metadata)])
+    return Summary(
+        value=[Summary.Value(tag=tag, metadata=metadata)])
 
 def _SessionStartInfoSummary(run):
     info = _SessionStartInfo(run)
     return _HParamSummary(
-        SESSION_START_INFO_TAG, _HParamSessionStartInfoData(info))
+        SESSION_START_INFO_TAG,
+        _HParamSessionStartInfoData(info))
 
 def _SessionStartInfo(run):
     flags = run.get("flags") or {}
@@ -235,15 +244,21 @@ def _apply_session_hparam(val, name, session):
         assert False, (name, val)
 
 def _HParamSessionStartInfoData(info):
-    return HParamsPluginData(session_start_info=info, version=HPARAM_DATA_VER)
+    return HParamsPluginData(
+        session_start_info=info,
+        version=HPARAM_DATA_VER)
 
 def _SessionEndInfoSummary(run):
     info = _SessionEndInfo(run)
-    return _HParamSummary(SESSION_END_INFO_TAG, _HParamSessionEndInfoData(info))
+    return _HParamSummary(
+        SESSION_END_INFO_TAG,
+        _HParamSessionEndInfoData(info))
 
 def _SessionEndInfo(run):
     end_secs = _safe_seconds(run.get("stopped"))
-    return SessionEndInfo(status=_Status(run), end_time_secs=end_secs)
+    return SessionEndInfo(
+        status=_Status(run),
+        end_time_secs=end_secs)
 
 def _Status(run):
     if run.status in ("terminated", "completed"):
@@ -256,7 +271,9 @@ def _Status(run):
         return Status.STATUS_UKNOWN
 
 def _HParamSessionEndInfoData(info):
-    return HParamsPluginData(session_end_info=info, version=HPARAM_DATA_VER)
+    return HParamsPluginData(
+        session_end_info=info,
+        version=HPARAM_DATA_VER)
 
 CMDS = [
     ("default", _default, "default scenario"),
