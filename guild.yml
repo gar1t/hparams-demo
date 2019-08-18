@@ -1,0 +1,15 @@
+noisy:
+  description: A noisy function
+  main: noisy
+  disable-plugins: all
+  flags:
+    noise:
+      description: Level of noise added to loss
+      type: float
+      min: 0.0
+    x:
+      description: Input to noisy function
+      type: float
+      default: 0.2
+      min: -2.0
+      max: 2.0
