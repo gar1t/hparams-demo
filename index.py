@@ -290,6 +290,15 @@ def _latent_metrics_2(gf, logdir):
     clear_dir(run_logdir)
     _add_run_default(run, opdef, logdir)
 
+def _latent_metrics_3(gf, logdir):
+    log.info("Running latent metrics v3 scenario (fails)")
+    opdef = OpDef(gf, "noisy")
+    run = SampleRun(opdef, random_noisy_flags())
+    scalars = run_scalars(run)
+    with SummaryWriter(logdir) as writer:
+        add_experiment(writer, opdef.flags, [], "1")
+        add_experiment(writer, opdef.flags, scalar_tags(scalars), "2")
+
 CMDS = [
     ("default",                  _default, "default scenario"),
     ("status-change-session",    _status_change_session,
@@ -314,6 +323,8 @@ CMDS = [
      "add run to logdir"),
     ("latent-metrics-2",         _latent_metrics_2,
      "add matrics after adding experiment v2 (fails)"),
+    ("latent-metrics-3",         _latent_metrics_3,
+     "add metrics by adding multiple experiments"),
 ]
 
 ###################################################################
@@ -351,11 +362,11 @@ def add_scalars(writer, scalars):
     for tag, value, step in scalars:
         writer.add_scalar(tag, value, step)
 
-def add_experiment(writer, flagdefs, scalar_tags):
+def add_experiment(writer, flagdefs, scalar_tags, name=None):
     log.info(
         " - Experiment with %i flag(s) and %i metric(s)",
         len(flagdefs), len(scalar_tags))
-    _add_summary(writer, _ExperimentSummary(flagdefs, scalar_tags))
+    _add_summary(writer, _ExperimentSummary(flagdefs, scalar_tags, name))
 
 def add_session_start_info(writer, run):
     log.info(
@@ -390,13 +401,14 @@ def clear_dir(dir):
 # HParam proto support
 ###################################################################
 
-def _ExperimentSummary(flags, scalar_tags):
-    experiment = _Experiment(flags, scalar_tags)
+def _ExperimentSummary(flags, scalar_tags, name=None):
+    experiment = _Experiment(flags, scalar_tags, name)
     return _HParamSummary(
         EXPERIMENT_TAG, _HParamExperimentData(experiment))
 
-def _Experiment(flags, scalar_tags):
+def _Experiment(flags, scalar_tags, name=None):
     return Experiment(
+        name=name,
         hparam_infos=[_HParamInfo(flag) for flag in flags],
         metric_infos=[_MetricInfo(tag) for tag in scalar_tags])
 
