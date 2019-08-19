@@ -1,5 +1,50 @@
 # HParam support for 0.7
 
+## Notes on index2
+
+We're going to move off tensorboardX - there's not point to this
+library now that TensorBoard is independent of TensorFlow.
+
+TensorBoard provides a simple event writer that is pefectly suitable
+for Guild needs.
+
+This will keep us in sync with TensorBoard as we can use any high
+level logging APIs provided by plugins.
+
+### Experiments cannot be updated
+
+Once the HParams plugins sees an experiment summary - no matter where
+it's logged, it locks that experiment info in forever more - there's
+no changing it, no way, no how. Creating experiment summaries in the
+ephemeral run log dirs is not a good idea - these should be created in
+the log dir root.
+
+We could get tricky and reload the TensorBoard app to reset the
+backend state. However this would also require a reload of the
+client. This is a lot of gymnastics on our end. The better approach
+would be to work with TB project to get it to support dynamically
+updated experiments.
+
+We should probably make this situation clear to the user and require a
+`--hparams` option when runing the `tensorboard` command.
+
+### HParam protos require a domain interval
+
+If a domain interval is not set, the HParams plugin front-end breaks
+where columns cannot be sorted.
+
+The browser conosole gets this message:
+
+```
+hparam.filter with no domainDiscrete, interval or regexp properties set: Object
+```
+
+And this when columns are sorted:
+
+```
+No column in colParams with index sortByIndex: 4
+```
+
 ## Notes on HParam functionality in TensorBoard
 
 ### Experiment summary

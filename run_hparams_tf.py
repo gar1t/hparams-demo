@@ -56,3 +56,5 @@ for num_units in HP_NUM_UNITS.domain.values:
             print({h.name: hparams[h] for h in hparams})
             run('logs/hparam_tuning/' + run_name, hparams)
             session_num += 1
+
+print("Wrote events to ./logs")

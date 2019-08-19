@@ -31,3 +31,5 @@ with SummaryWriter(logdir) as w:
                     'loss': loss
                 }
                 w.add_hparams(hparams, metrics)
+
+print("Wrote events to ./runs")

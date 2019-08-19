@@ -25,6 +25,8 @@ from tensorboardX.proto.summary_pb2 import Summary
 from tensorboardX.proto.summary_pb2 import SummaryMetadata
 
 from tensorboardX.proto.types_pb2 import DT_FLOAT
+from tensorboardX.proto.types_pb2 import DT_INT32
+from tensorboardX.proto.types_pb2 import DT_STRING
 
 from tensorboardX.x2num import make_np
 
@@ -413,11 +415,12 @@ def _Experiment(flags, scalar_tags, name=None):
         metric_infos=[_MetricInfo(tag) for tag in scalar_tags])
 
 def _HParamInfo(flag):
+    interval = Interval(min_value=-10.0, max_value=10.0)
     return HParamInfo(
         name=flag.name,
         description=flag.description,
         type=_HParamType(flag),
-        domain_interval=_HParamInterval(flag))
+        domain_interval=interval)
 
 def _HParamType(flag):
     if not flag.type:
